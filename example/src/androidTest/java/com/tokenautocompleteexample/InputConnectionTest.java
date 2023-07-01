@@ -20,6 +20,7 @@ import static androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static com.tokenautocompleteexample.TokenMatchers.emailForPerson;
+import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -137,7 +138,7 @@ public class InputConnectionTest {
         return new ViewAction() {
             @Override
             public Matcher<View> getConstraints() {
-                return isAssignableFrom(ContactsCompletionView.class);
+                return anyOf(isAssignableFrom(ContactsCompletionView.class), isAssignableFrom(TagCompletionView.class));
             }
 
             @Override
@@ -147,8 +148,14 @@ public class InputConnectionTest {
 
             @Override
             public void perform(UiController uiController, View view) {
-                ContactsCompletionView completionView = (ContactsCompletionView)view;
-                InputConnection connection = completionView.testAccessibleInputConnection;
+                final InputConnection connection;
+                if (view instanceof ContactsCompletionView) {
+                    connection = ((ContactsCompletionView) view).testAccessibleInputConnection;
+                } else if (view instanceof TagCompletionView) {
+                    connection = ((TagCompletionView) view).testAccessibleInputConnection;
+                } else {
+                    throw new RuntimeException("Unsupported view type");
+                }
                 connection.commitText(text, 1);
             }
         };

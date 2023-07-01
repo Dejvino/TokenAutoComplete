@@ -15,6 +15,7 @@ import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.tokenautocompleteexample.InputConnectionTest.forceCommitText
 import org.hamcrest.Description
 import org.hamcrest.Matcher
 import org.hamcrest.Matchers.allOf
@@ -56,6 +57,14 @@ class ComposerCompletionViewTest {
         onView(withId(R.id.composeView))
                 .perform(typeText("Unfinished #token #autocomplete"))
                 .check(matches(tokenCount(`is`(1))))
+    }
+
+    @Test
+    fun completesMultipleWhenPasting() {
+        onView(withId(R.id.composeView))
+                .perform(typeText("Pasting "))
+                .perform(forceCommitText("multiple #token #autocomplete #hashtags."))
+                .check(matches(tokenCount(`is`(3))))
     }
 
     private fun switchToTabByTag(tag: String) = object : ViewAction {

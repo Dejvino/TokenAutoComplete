@@ -13,6 +13,7 @@ import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
+import static com.tokenautocompleteexample.InputConnectionTest.forceCommitText;
 import static com.tokenautocompleteexample.TokenMatchers.emailForPerson;
 import static com.tokenautocompleteexample.TokenMatchers.tokenCount;
 import static org.hamcrest.Matchers.containsString;
@@ -44,6 +45,17 @@ public class ContactsCompletionViewTest {
         onView(withId(R.id.searchView))
                 .perform(typeText("mar"))
                 .check(matches(tokenCount(is(0))));
+    }
+
+    @Test
+    public void completesMultipleWhenPasting(){
+        onView(withId(R.id.searchView))
+                .perform(typeText(" "))
+                .perform(forceCommitText("mar, max, meg, "))
+                .check(matches(emailForPerson(0, is("marshall@example.com"))))
+                .check(matches(emailForPerson(1, is("max@example.com"))))
+                .check(matches(emailForPerson(2, is("meg@example.com"))))
+                .check(matches(tokenCount(is(3))));
     }
 
     @Test
