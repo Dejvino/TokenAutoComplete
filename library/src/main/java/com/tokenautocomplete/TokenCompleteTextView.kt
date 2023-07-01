@@ -61,6 +61,7 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
 
     }
 
+    private var internalEditAddingSeparator: Boolean = false
     private var tokenizationInProgress: Boolean = false
     private var feedingInProgress: Boolean = false
     private var tokenizationScheduled: Boolean = false
@@ -200,7 +201,8 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
                     if (preventFreeFormText || currentCompletionText().isNotEmpty()) {
                         performCompletion()
                     }
-                    return@InputFilter if (preventFreeFormText) { "" } else { split }
+                    val preventDoubleSpace = text.isNotEmpty() && text.last() == ' ' && text.last() == split.first()
+                    return@InputFilter if (preventFreeFormText || preventDoubleSpace) { "" } else { split }
                 }/**/
 
                 //We need to not do anything when we would delete the prefix
@@ -1310,7 +1312,7 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
                         Log.d(TAG, "Appending text from buffer: " + tokenizationInputBuffer)
                         text.append(tokenizationInputBuffer)
                     }
-                } else {
+                } else if (internalEditAddingSeparator) {
                     // auto-inserted space after token replacement could double up
                     val buffer = tokenizationInputBuffer
                     if (text.isNotEmpty() && text.last() == ' ' && !buffer.isNullOrEmpty() && buffer.first() == ' ') {
