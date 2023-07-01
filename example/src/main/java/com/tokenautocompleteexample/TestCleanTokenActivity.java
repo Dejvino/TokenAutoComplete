@@ -13,7 +13,10 @@ import android.widget.TabHost;
 import android.widget.TextView;
 
 import com.tokenautocomplete.FilteredArrayAdapter;
+import com.tokenautocomplete.TagTokenizer;
 import com.tokenautocomplete.TokenCompleteTextView;
+
+import java.util.Arrays;
 
 /**
  * Created by mgod on 11/29/17.
@@ -82,5 +85,13 @@ public class TestCleanTokenActivity extends AppCompatActivity {
         if (savedInstanceState == null) {
             completionView.setPrefix("To: ", Color.parseColor("blue"));
         }
+
+        TagCompletionView tagView = findViewById(R.id.composeView);
+        tagView.performBestGuess(false);
+        tagView.preventFreeFormText(false);
+        tagView.setTokenizer(new TagTokenizer(Arrays.asList('@', '#')));
+        tagView.setAdapter(new TagAdapter(this, R.layout.tag_layout, Tag.sampleTags()));
+        tagView.setTokenClickStyle(TokenCompleteTextView.TokenClickStyle.Select);
+        tagView.setThreshold(1);
     }
 }
