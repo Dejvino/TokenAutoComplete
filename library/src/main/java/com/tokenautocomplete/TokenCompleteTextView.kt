@@ -40,6 +40,7 @@ import androidx.appcompat.widget.AppCompatAutoCompleteTextView
 import java.io.Serializable
 import java.lang.reflect.ParameterizedType
 import java.util.*
+import kotlin.collections.ArrayList
 
 /**
  * GMail style auto complete view with easy token customization
@@ -60,6 +61,10 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
 
     }
 
+    private var tokenizationInProgress: Boolean = false
+    private var feedingInProgress: Boolean = false
+    private var tokenizationScheduled: Boolean = false
+    private var tokenizationInputBuffer: CharSequence? = null
     private var tokenizer: Tokenizer? = null
     private var selectedObject: T? = null
     private var listener: TokenListener<T>? = null
@@ -134,7 +139,7 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
         // Initialise TextChangedListeners
         addListeners()
         setTextIsSelectable(false)
-        isLongClickable = false
+        isLongClickable = true
 
         //In theory, get the soft keyboard to not supply suggestions. very unreliable
         inputType = inputType or
@@ -157,15 +162,46 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
                     return@InputFilter ""
                 }
 
+                if (tokenizationInProgress) {
+                    return@InputFilter ""
+                }
+
+                if (tokenizationInputBuffer != null) {
+                    val buffer = tokenizationInputBuffer
+                    Log.d(TAG, "Processing tokenization buffer: tokenization: $buffer")
+                    if (tokenizationInputBuffer != source) {
+                        tokenizationInputBuffer = source
+                        return@InputFilter ""
+                    } else {
+                        tokenizationInputBuffer = null
+                    }
+                }
+
                 //Detect split characters, remove them and complete the current token instead
-                if (tokenizer!!.containsTokenTerminator(source)) {
+                val firstTokenTerminatorIndex = findFirstTokenTerminatorIndex(source)
+                if (firstTokenTerminatorIndex != null) {
+                    feedingInProgress = true
+                    val beforeSplit = source.subSequence(0, firstTokenTerminatorIndex)
+                    val split = source.subSequence(firstTokenTerminatorIndex, firstTokenTerminatorIndex + 1)
+                    val splitAndRest = source.subSequence(firstTokenTerminatorIndex, source.length)
+                    val afterSplit = source.subSequence(firstTokenTerminatorIndex + 1, source.length)
+                    if (beforeSplit.isNotEmpty()) {
+                        // ingest the first part and save the rest for later
+                        Log.d(TAG, "Processing leading part of text: $beforeSplit")
+                        tokenizationInputBuffer = (if (preventFreeFormText) { afterSplit } else { splitAndRest })
+                        tokenizationScheduled = true
+                        return@InputFilter beforeSplit
+                    }
+                    if (afterSplit.isNotEmpty()) {
+                        tokenizationInputBuffer = afterSplit
+                    }
                     //Only perform completion if we don't allow free form text, or if there's enough
                     //content to believe this should be a token
                     if (preventFreeFormText || currentCompletionText().isNotEmpty()) {
                         performCompletion()
-                        return@InputFilter ""
                     }
-                }
+                    return@InputFilter if (preventFreeFormText) { "" } else { split }
+                }/**/
 
                 //We need to not do anything when we would delete the prefix
                 prefix?.also { prefix ->
@@ -190,6 +226,17 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
         initialized = true
     }
 
+    private fun findFirstTokenTerminatorIndex(source: CharSequence?): Int? {
+        val tokenizer = tokenizer ?: return null
+        return source?.indexOfFirst { tokenizer.containsTokenTerminator(it.toString()) }.takeIf { it != null && it >= 0 }
+    }
+
+    private fun scheduleTokenization(remainingInput: CharSequence) {
+        Log.d(TAG, "Scheduling remainder of text to be tokenized later: $remainingInput")
+        tokenizationScheduled = true
+        tokenizationInputBuffer = remainingInput
+    }
+
     constructor(context: Context) : super(context) {
         init()
     }
@@ -206,9 +253,27 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
         init()
     }
 
-    override fun performFiltering(text: CharSequence, keyCode: Int) {
+    var filteringDepth: Int = 0
+
+    fun performFilteringWithCallback(runnable: Runnable?) {
+        Log.d(TAG, "Performing filtering $filteringDepth for: $text")
+        filteringDepth++
         val filter = filter
-        filter?.filter(currentCompletionText(), this)
+        filter?.filter(currentCompletionText()) {
+            runnable?.run()
+            onFilterComplete(it)
+        }
+    }
+
+    override fun performFiltering(text: CharSequence, keyCode: Int) {
+        performFilteringWithCallback(null)
+    }
+
+    override fun onFilterComplete(count: Int) {
+        super.onFilterComplete(count)
+
+        filteringDepth--
+        Log.d(TAG, "Filtering completed, current depth $filteringDepth")
     }
 
     fun setTokenizer(t: Tokenizer) {
@@ -572,10 +637,11 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
     override fun performCompletion() {
         if ((adapter == null || listSelection == ListView.INVALID_POSITION) && enoughToFilter()) {
             val bestGuess: Any? = if (adapter != null && adapter.count > 0 && performBestGuess) {
-                adapter.getItem(0)
-            } else {
-                defaultObject(currentCompletionText())
-            }
+                    adapter.getItem(0)
+                } else {
+                    defaultObject(currentCompletionText())
+                }
+            Log.d(TAG, "Performing completion for '${currentCompletionText()}', best guess: $bestGuess")
             replaceText(convertSelectionToString(bestGuess))
         } else {
             super.performCompletion()
@@ -1224,9 +1290,46 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
             if (!inBatchEditAPI26to29Workaround) {
                 updateHint()
             }
+
+            if (feedingInProgress) {
+                if (!internalEditInProgress) {
+                    if (tokenizationScheduled) {
+                        tokenizationScheduled = false
+                        tokenizationInProgress = true
+                        setSelectionCursorToEnd(text)
+                        performFilteringWithCallback(Runnable {
+                            Log.d(TAG, "Running after-filtering completion")
+                            tokenizationInProgress = false
+                            performCompletion()
+                            if (tokenizationInputBuffer != null) {
+                                Log.d(TAG, "Appending text from buffer: " + tokenizationInputBuffer)
+                                text.append(tokenizationInputBuffer)
+                            }
+                        })
+                    } else if (!tokenizationInProgress && tokenizationInputBuffer != null) {
+                        Log.d(TAG, "Appending text from buffer: " + tokenizationInputBuffer)
+                        text.append(tokenizationInputBuffer)
+                    }
+                } else {
+                    // auto-inserted space after token replacement could double up
+                    val buffer = tokenizationInputBuffer
+                    if (text.isNotEmpty() && text.last() == ' ' && !buffer.isNullOrEmpty() && buffer.first() == ' ') {
+                        tokenizationInputBuffer = buffer.subSequence(1, buffer.length)
+                    }
+                }
+                if (tokenizationInputBuffer == null) {
+                    feedingInProgress = false
+                }
+            }
         }
 
         override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {}
+    }
+
+    private fun setSelectionCursorToEnd(text: Editable) {
+        if (selectionEnd != text.length) {
+            selectAll()
+        }
     }
 
     @Suppress("MemberVisibilityCanBePrivate")
@@ -1315,8 +1418,8 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
             super.onRestoreInstanceState(state)
             return
         }
-        super.onRestoreInstanceState(state.superState)
         internalEditInProgress = true
+        super.onRestoreInstanceState(state.superState)
         setText(state.prefix)
         prefix = state.prefix
         internalEditInProgress = false
