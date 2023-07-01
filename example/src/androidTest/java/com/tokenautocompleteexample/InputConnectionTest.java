@@ -96,6 +96,20 @@ public class InputConnectionTest {
                 .check(matches(emailForPerson(0, is("marshall@example.com"))));
     }
 
+    @Test
+    public void evaluatesPastedTextWithSplitChars() {
+        // Pasted text is introduced as a single change to the text view, which breaks
+        // the expectation of being able to process characters individually as they are typed.
+        // Pasted text should be handled in parts, as if it were typed in.
+        onView(withId(R.id.searchView))
+                .perform(typeText("m"))
+                .perform(forceCommitText("ax, meg, marshall@example.com, max, "))
+                .check(matches(emailForPerson(0, is("max@example.com"))))
+                .check(matches(emailForPerson(1, is("meg@example.com"))))
+                .check(matches(emailForPerson(2, is("marshall@example.com"))))
+                .check(matches(emailForPerson(3, is("max@example.com"))));
+    }
+
     //This is to emulate the behavior of some keyboards (Google Android O) to choose unusual text
     public static ViewAction forceComposingText(final String text) {
         return new ViewAction() {
