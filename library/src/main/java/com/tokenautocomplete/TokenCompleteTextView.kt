@@ -169,11 +169,13 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
 
                 if (tokenizationInputBuffer != null) {
                     val buffer = tokenizationInputBuffer
-                    Log.d(TAG, "Processing tokenization buffer: tokenization: $buffer")
                     if (tokenizationInputBuffer != source) {
+                        Log.d(TAG, "Filtering source '$source' against tokenization buffer: '$buffer'. Where did this come from?")
                         tokenizationInputBuffer = source
+                        tokenizationScheduled = true
                         return@InputFilter ""
                     } else {
+                        Log.d(TAG, "Filtering source '$source' matches tokenization buffer.")
                         tokenizationInputBuffer = null
                     }
                 }
@@ -191,10 +193,13 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
                         Log.d(TAG, "Processing leading part of text: $beforeSplit")
                         tokenizationInputBuffer = (if (preventFreeFormText) { afterSplit } else { splitAndRest })
                         tokenizationScheduled = true
+                        post(this::continueFeedingText)
                         return@InputFilter beforeSplit
                     }
                     if (afterSplit.isNotEmpty()) {
+                        Log.d(TAG, "Storing remaining text: $afterSplit")
                         tokenizationInputBuffer = afterSplit
+                        post(this::continueFeedingText)
                     }
                     //Only perform completion if we don't allow free form text, or if there's enough
                     //content to believe this should be a token
@@ -233,10 +238,26 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
         return source?.indexOfFirst { tokenizer.containsTokenTerminator(it.toString()) }.takeIf { it != null && it >= 0 }
     }
 
-    private fun scheduleTokenization(remainingInput: CharSequence) {
-        Log.d(TAG, "Scheduling remainder of text to be tokenized later: $remainingInput")
-        tokenizationScheduled = true
-        tokenizationInputBuffer = remainingInput
+    private fun feedRemainingTextIfAny() {
+        if (tokenizationInputBuffer != null) {
+            Log.d(TAG, "Appending text from buffer: " + tokenizationInputBuffer)
+            text.append(tokenizationInputBuffer)
+        }
+    }
+
+    private fun continueFeedingText() {
+        Log.d(TAG, "Remainder of text to process: $tokenizationInputBuffer")
+        if (tokenizationScheduled) {
+            tokenizationScheduled = false
+            setSelectionCursorToEnd(text)
+            performFilteringWithCallback(Runnable {
+                Log.d(TAG, "Running after-filtering completion")
+                performCompletion()
+                feedRemainingTextIfAny()
+            })
+        } else {
+            feedRemainingTextIfAny()
+        }
     }
 
     constructor(context: Context) : super(context) {
@@ -1293,7 +1314,7 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
                 updateHint()
             }
 
-            if (feedingInProgress) {
+            /*if (feedingInProgress) {
                 if (!internalEditInProgress) {
                     if (tokenizationScheduled) {
                         tokenizationScheduled = false
@@ -1322,7 +1343,7 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
                 if (tokenizationInputBuffer == null) {
                     feedingInProgress = false
                 }
-            }
+            }*/
         }
 
         override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {}
