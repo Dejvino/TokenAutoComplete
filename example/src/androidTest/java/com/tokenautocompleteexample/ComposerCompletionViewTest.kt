@@ -60,11 +60,23 @@ class ComposerCompletionViewTest {
     }
 
     @Test
-    fun completesMultipleWhenPasting() {
+    fun ignoresStandaloneTokens() {
+        val typedText = "# #token abc"
         onView(withId(R.id.composeView))
-                .perform(typeText("Pasting "))
-                .perform(forceCommitText("multiple #token #autocomplete #hashtags."))
+            .perform(typeText(typedText))
+            .check(matches(tokenCount(`is`(1))))
+            .check(matches(withText(typedText)))
+    }
+
+    @Test
+    fun completesMultipleWhenPasting() {
+        val typedText = "Pasting "
+        val pastedText = "multiple #token #autocomplete #hashtags."
+        onView(withId(R.id.composeView))
+                .perform(typeText(typedText))
+                .perform(forceCommitText(pastedText))
                 .check(matches(tokenCount(`is`(3))))
+                .check(matches(withText(typedText + pastedText)))
     }
 
     private fun switchToTabByTag(tag: String) = object : ViewAction {

@@ -150,7 +150,7 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
 
         // Initialise the text filter (listens for the split chars)
         filters =
-            arrayOf(InputFilter { source, _, _, _, destinationStart, destinationEnd ->
+            arrayOf(InputFilter { source, sourceStart, sourecEnd, destination, destinationStart, destinationEnd ->
                 if (internalEditInProgress) {
                     return@InputFilter null
                 }
@@ -167,14 +167,13 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
                     val splitAndRest = source.subSequence(firstTokenTerminatorIndex, source.length)
                     val afterSplit = source.subSequence(firstTokenTerminatorIndex + 1, source.length)
                     if (beforeSplit.isNotEmpty()) {
-                        tokenizationInputBuffer = (if (preventFreeFormText) { afterSplit } else { splitAndRest })
+                        val remainder = (if (preventFreeFormText) { afterSplit } else { splitAndRest })
                         tokenizationScheduled = true
-                        post(this::continueFeedingText)
+                        post { continueFeedingText(remainder) }
                         return@InputFilter beforeSplit
                     }
                     if (afterSplit.isNotEmpty()) {
-                        tokenizationInputBuffer = afterSplit
-                        post(this::continueFeedingText)
+                        post { continueFeedingText(afterSplit) }
                     }
                     //Only perform completion if we don't allow free form text, or if there's enough
                     //content to believe this should be a token
@@ -182,7 +181,9 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
                         performCompletion()
                     }
                     val preventDoubleSpace = text.isNotEmpty() && text.last() == ' ' && text.last() == split.first()
-                    return@InputFilter if (preventFreeFormText || preventDoubleSpace) { "" } else { split }
+                    val clearText = preventFreeFormText || preventDoubleSpace
+                    val limitToSplitter = afterSplit.isNotEmpty()
+                    return@InputFilter if (clearText) { "" } else if (limitToSplitter) { split } else { null }
                 }
 
                 //We need to not do anything when we would delete the prefix
@@ -213,27 +214,23 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
         return source?.indexOfFirst { tokenizer.containsTokenTerminator(it.toString()) }.takeIf { it != null && it >= 0 }
     }
 
-    private fun feedRemainingTextIfAny() {
-        if (tokenizationInputBuffer != null) {
-            Log.d(TAG, "Appending text from buffer: $tokenizationInputBuffer")
-            val buffer = tokenizationInputBuffer
-            tokenizationInputBuffer = null
-            text.append(buffer)
-        }
+    private fun feedRemainingText(remainingText: CharSequence) {
+        Log.d(TAG, "Appending remaining text: $remainingText")
+        text.append(remainingText)
     }
 
-    private fun continueFeedingText() {
-        Log.d(TAG, "Remainder of text to process: $tokenizationInputBuffer")
+    private fun continueFeedingText(remainingText: CharSequence) {
+        Log.d(TAG, "Remainder of text to process: $remainingText")
         if (tokenizationScheduled) {
             tokenizationScheduled = false
             setSelectionCursorToEnd(text)
             performFilteringAndThen(Runnable {
                 Log.d(TAG, "Running after-filtering completion")
                 performCompletion()
-                feedRemainingTextIfAny()
+                feedRemainingText(remainingText)
             })
         } else {
-            feedRemainingTextIfAny()
+            feedRemainingText(remainingText)
         }
     }
 
@@ -1285,7 +1282,8 @@ abstract class TokenCompleteTextView<T: Any> : AppCompatAutoCompleteTextView, On
 
     private fun setSelectionCursorToEnd(text: Editable) {
         if (selectionEnd != text.length) {
-            selectAll()
+            val candidate = currentCandidateTokenRange
+            setSelection(candidate.start, candidate.end)
         }
     }
 
